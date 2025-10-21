@@ -36,9 +36,11 @@
 1. **AIの説明責任＋決済・本人確認を一体化**: GreenhouseやSmartRecruitersがID検証・成果報酬型に踏み込んでおり、AIスコアの根拠提示と決済ガバナンスで差別化余地。citeturn2search7turn4search0turn4search2
 2. **価格レンジのギャップを埋めるハイブリッドプラン**: WorkableやTalentio、ジョブカンの透明価格と、SmartRecruitersの高額年額の間に位置付ける月額＋成果課金モデルを磨き、SMB→成長企業へのスケールを設計。citeturn2search0turn3search0turn14search7turn16search1
 3. **金融・HRIS連携でLTV最大化**: RipplingやDeelはHR以外のモジュールで単価を高めている。Stripe Connectや紹介決済を軸に、外部給与SaaSやEORとの提携ロードマップを整理。citeturn5search2turn5search3turn6search0turn7search4
+4. **予測分析と成長パス可視化による長期在籍促進**: 新たに追加されたキャリアトラジェクトリー予測機能により、候補者の成長ポテンシャルを可視化し、入社後のキャリアパスを明確化することで長期在籍率を向上。これにより離職コスト削減とROI最大化を実現。
 
 ## 6. 今後の調査・アクションアイテム
 - グローバル価格データを整理し、社員規模・AI利用量・成果報酬率の3軸でシミュレーションモデルを構築（SmartRecruiters、Workable、Ashby、Talentio、ジョブカンの価格を基準化）。citeturn1search1turn2search0turn3search0turn14search7turn16search1
 - AI説明責任/UI要件の比較検証：Ashby Notetaker、sonar AI求人アシスタント、HERP AIリクルーターのログ・根拠表示をデモヒアリング。citeturn1search0turn11search2turn8search7
 - 国内ID/KYC・決済ベンダー（eKYC、送金事業者）との協業余地を調査し、Tsunaguの成果報酬決済体験に組み込む。citeturn4search0turn7search4
 - グローバル連携候補（EOR、Payroll、HRIS）のAPI公開状況を継続ウォッチし、2026年以降の海外展開シナリオを試算。citeturn5search2turn6search0
+- 追加された新機能（AIパフォーマンスレビュー、チームカルチャーマッチング、スキルギャップ自動学習プラン、AI面接官トレーニング）の市場価値と収益化可能性を評価。

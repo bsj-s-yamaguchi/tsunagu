@@ -75,6 +75,10 @@ graph TD
 | Agency Service | エージェント契約、求人配信、案件発注、成果レポートを管理 | GraphQL `agentOrders`, `createAgentBrief`, REST `/agent-order/import` | PostgreSQL(`agent_orders`, `agent_metrics`), Redis(queue) | Chatwork API, Slack API | citeturn0view0 |
 | Reporting Service | KPI算出、BigQuery転送 | GraphQL `reportingSummary` | BigQuery, PostgreSQL(`report_jobs`) | Airflow |
 | Admin Service | 監査ログ、設定フラグ操作 | GraphQL `auditLogs`, REST `/admin/toggles` | PostgreSQL(`audit_logs`) |  |
+| Performance Review Service | 入社後実績と採用時AIスコアの照合、AIモデル精度検証 | GraphQL `performanceReview`, `modelAccuracy` | PostgreSQL(`performance_reviews`, `model_metrics`), BigQuery | AI基盤 |
+| Culture Matching Service | 組織内チームカルチャーと候補者の適合度分析 | GraphQL `teamCultureMatch`, `cultureFitScore` | PostgreSQL(`culture_matches`, `team_cultures`), BigQuery | AI基盤 |
+| Learning Path Service | 不足スキルの特定とカスタマイズ学習プラン生成 | GraphQL `skillGapAnalysis`, `learningPlan` | PostgreSQL(`skill_gaps`, `learning_paths`) | AI基盤 |
+| Interviewer Training Service | 面接官の評価傾向・バイアス分析と個別トレーニングプログラム提供 | GraphQL `interviewerBias`, `trainingProgram` | PostgreSQL(`interviewer_metrics`, `training_programs`) | AI基盤 |
 
 - **通信方針**: API GatewayとはGraphQL Federation。サービス間は gRPC（Protobuf）で同期呼び出し＋Kafkaトピックで非同期イベント（`candidate.created`, `payment.paid` 等）を配信。
 - **コンフィグ管理**: 各サービスは12factor準拠。SecretsはAWS Secrets Manager。Feature FlagはLaunchDarkly連携。
@@ -87,6 +91,10 @@ graph TD
   - `PaymentSettlementWorkflow`: 採用決定後＋期日条件でStripe Transferを起動、紹介者への分配と請求書PDF生成を並列実行。
   - `KycRetryWorkflow`: KYCベンダーのpendingステータスを60分間隔で再照会、3回失敗でOpsチームへSlack通知。
   - `ModelMonitoringWorkflow`: AIスコアと採用実績の乖離をBigQueryで分析し、閾値超過で再学習ジョブをAirflowに投げる。
+  - `PerformanceReviewWorkflow`: 月次で入社者実績と採用時AIスコアを照合し、モデル精度レポートを生成。
+  - `CultureMatchingWorkflow`: 組織カルチャーデータを定期更新し、候補者との適合度を再計算。
+  - `LearningPathUpdateWorkflow`: スキルギャップ分析に基づき、学習プランを定期的に更新。
+  - `InterviewerTrainingWorkflow`: 面接官評価データを分析し、個別トレーニングプログラムを更新。
 - 監視: Temporal UI + Prometheusメトリクス。ジョブ失敗はPagerDutyでSLAに応じてアラート。ジョブ設定はTerraformでコード管理。
 
 ### 2.4 AI / データパイプライン
@@ -95,6 +103,11 @@ graph TD
 - **モデルバージョン管理**: Vertex AI Model Registryでバージョン管理し、`Model Version` と `Prompt Template` をセットでタグ付け。`docs/07_feature_catalog.md` のExplainability要件を満たすため、各スコアの根拠テーブルをPostgreSQL(`ai_explanations`)へ保存。
 - **ガードレール**: OpenAI API呼び出し前にPIIフィルタリング、禁止ワード置換。出力はPydanticで厳格バリデーション。異常スコアはHuman-in-the-loop審査キューへ回送。
 - **コスト最適化**: プロンプトテンプレートをキャッシュし、類似求人はEmbeddingで再利用。ピーク時はBatch推論（最大500件）に切替え、閾値を超えると社内Distilledモデルへのフォールバックを検討。
+- **新機能AIモデル**:
+  - **Performance Review Model**: 入社後実績（業績、評価、離職率等）と採用時AIスコアを照合し、モデル精度を継続的に検証・改善。
+  - **Culture Matching Model**: 組織内各チームのカルチャー特性と候補者の価値観を分析し、最適なチーム配置を提案。
+  - **Learning Path Model**: 候補者のスキルギャップを特定し、カスタマイズされた学習プランを自動生成。
+  - **Interviewer Training Model**: 面接官の評価傾向とバイアスを分析し、個別に最適化されたトレーニングプログラムを提供。
 
 ## 3. データ設計
 ### 3.1 エンティティと関係
@@ -125,6 +138,14 @@ graph TD
 | line_contacts | line_user_id | candidates, communication_threads | 機密 | PostgreSQL |
 | agent_orders | order_id | referral_partners, job_postings | 機密 | PostgreSQL |
 | agent_metrics | metric_id | agent_orders | 機密 | PostgreSQL |
+| performance_reviews | review_id | applications, candidates | 機密 | PostgreSQL |
+| model_metrics | metric_id | performance_reviews | 機密 | PostgreSQL |
+| team_cultures | culture_id | organizations | 機密 | PostgreSQL |
+| culture_matches | match_id | candidates, team_cultures | 機密 | PostgreSQL |
+| skill_gaps | gap_id | candidates | 機密 | PostgreSQL |
+| learning_paths | path_id | skill_gaps | 機密 | PostgreSQL |
+| interviewer_metrics | metric_id | users, interviews | 機密 | PostgreSQL |
+| training_programs | program_id | interviewer_metrics | 機密 | PostgreSQL |
 
 ### 3.2 テーブル定義（抜粋）
 ```sql
@@ -284,6 +305,83 @@ CREATE TABLE agent_metrics (
   last_submitted_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE TABLE performance_reviews (
+  review_id UUID PRIMARY KEY,
+  application_id UUID NOT NULL REFERENCES applications(application_id),
+  candidate_id UUID NOT NULL REFERENCES candidates(candidate_id),
+  ai_scores_at_hire JSONB,
+  actual_performance JSONB,
+  accuracy_delta JSONB,
+  review_period INTERVAL,
+  reviewed_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE model_metrics (
+  metric_id UUID PRIMARY KEY,
+  model_version TEXT NOT NULL,
+  accuracy_score NUMERIC(5,4),
+  bias_indicators JSONB,
+  last_reviewed_at TIMESTAMPTZ DEFAULT now(),
+  next_review_due_at TIMESTAMPTZ
+);
+
+CREATE TABLE team_cultures (
+  culture_id UUID PRIMARY KEY,
+  org_id UUID NOT NULL REFERENCES organizations(org_id),
+  team_name TEXT NOT NULL,
+  culture_profile JSONB, -- {values:[], work_style:[], communication:[], ...}
+  diversity_index NUMERIC(5,4),
+  turnover_rate NUMERIC(5,4),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE culture_matches (
+  match_id UUID PRIMARY KEY,
+  candidate_id UUID NOT NULL REFERENCES candidates(candidate_id),
+  team_culture_id UUID NOT NULL REFERENCES team_cultures(culture_id),
+  match_score NUMERIC(5,4),
+  compatibility_factors JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE skill_gaps (
+  gap_id UUID PRIMARY KEY,
+  candidate_id UUID NOT NULL REFERENCES candidates(candidate_id),
+  missing_skills TEXT[],
+  proficiency_levels JSONB,
+  priority_score NUMERIC(5,4),
+  identified_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE learning_paths (
+  path_id UUID PRIMARY KEY,
+  gap_id UUID NOT NULL REFERENCES skill_gaps(gap_id),
+  recommended_courses JSONB,
+  estimated_completion_time INTERVAL,
+  learning_resources JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE interviewer_metrics (
+  metric_id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(user_id),
+  interview_count INT DEFAULT 0,
+  avg_score_deviation NUMERIC(5,4),
+  bias_indicators JSONB,
+  calibration_score NUMERIC(5,4),
+  last_evaluated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE training_programs (
+  program_id UUID PRIMARY KEY,
+  interviewer_metric_id UUID NOT NULL REFERENCES interviewer_metrics(metric_id),
+  program_content JSONB,
+  completion_status TEXT CHECK (completion_status IN ('NOT_STARTED','IN_PROGRESS','COMPLETED')),
+  assigned_at TIMESTAMPTZ DEFAULT now(),
+  completed_at TIMESTAMPTZ
+);
 ```
 
 - テーブル生成はDrizzle Kitによるマイグレーションで管理し、スキーマ定義（TypeScript）からDDLを自動生成する。PII列（email, phone, hashed_national_id）は`pgcrypto`拡張で暗号化。履歴は`application_history` テーブルでAudit（`updated_by`, `reason`）。
@@ -314,6 +412,10 @@ type Query {
   messageTemplates(orgId: ID!): [MessageTemplate!]!
   agentOrders(filter: AgentOrderFilter!, pagination: PaginationInput!): AgentOrderConnection!
   reports(input: ReportInput!): ReportPayload!
+  performanceReview(id: ID!): PerformanceReview!
+  teamCultureMatches(candidateId: ID!): [CultureMatch!]!
+  learningPath(candidateId: ID!): LearningPath!
+  interviewerMetrics(userId: ID!): InterviewerMetrics!
 }
 
 type Mutation {
@@ -331,6 +433,10 @@ type Mutation {
   upsertCandidateTags(input: CandidateTagInput!): Candidate!
   createAgentOrder(input: AgentOrderInput!): AgentOrder!
   syncChatworkRoom(input: ChatworkSyncInput!): ChatworkRoomPayload!
+  generatePerformanceReview(applicationId: ID!): PerformanceReview!
+  updateTeamCulture(input: TeamCultureInput!): TeamCulture!
+  generateLearningPath(candidateId: ID!): LearningPath!
+  assignTrainingProgram(input: TrainingProgramInput!): TrainingProgram!
 }
 ```
 - Relay仕様に沿ったConnection/Edge構造を採用し、ページングは`first/after`。`JobFilter`には媒体、雇用形態、AIスコア閾値などを含む。
@@ -450,6 +556,7 @@ type Mutation {
 - BigQueryとのクロスクラウド転送におけるネットワークコスト最適化 → AWS Private Service Connect + BigQuery Data Transfer検討。
 - Temporal vs. Step Functionsのコスト比較 → 2025-11-15までにPoC結果を`docs/12_architecture_overview.md`へ反映。
 - 社内Distilledモデル開発（LLMコスト削減）→ Growthフェーズ、MVPではOpenAI依存を継続。
+- 新しいAIサービス（Performance Review、Culture Matching、Learning Path、Interviewer Training）のモデル開発と統合。
 
 ### 9.3 リスクとMitigation
 | リスク | 影響 | 対応策 | トリガー |
@@ -460,6 +567,7 @@ type Mutation {
 | データドリフト | AI精度低下 | Monthly再学習、Explainabilityレビュー、Human override | 精度乖離>5% |
 | 媒体API変更 | 応募データ欠損 | 監視アラート、早期アップデート、Fallback CSV Import | Sync失敗連続3回 |
 | LINE/Twilio/Chatwork審査・API制限 | 候補者通知が停止、機能出荷遅延 | 事前審査書類整備、代替チャネル（メール/Slack）フォールバック、レート制御、キュー監視 | 審査未完が30日超 or レート制限発生回数>3/月 | citeturn0open0turn0view0 |
+| 新AIサービス開発遅延 | 新機能リリース遅れ | MVPではコア機能に集中、追加機能はGrowthフェーズに延期 | 2026-02-15までにPerformance Review MVP未完 |
 
 ## 10. 付録・次アクション
 - **シーケンス図**: 求人配信フロー、選考→決済フローをMermaidで作成し、`docs/06_appendices.md` に格納（担当: EM、期限: 2025-11-10）。
@@ -467,6 +575,7 @@ type Mutation {
 - **設定テンプレート**: Slack通知テンプレ、Stripe料金表、KYCチェックリストを `docs/06_appendices.md` に追記（担当: Ops、期限: 2025-11-12）。
 - **マルチチャネルRunbook**: LINE/Twilio/メール/SMSのシナリオ図、禁止ワードリスト、手動フォールバック手順を作成し `docs/06_appendices.md` に追加（担当: CX Lead、期限: 2025-11-15）。 citeturn0open0
 - **重複検知＆タレントプール運用ガイド**: データクレンジング手順、タグ命名規則、エージェント発注のレビュー項目を整備し、`docs/06_appendices.md` にテンプレを追加（担当: Data Lead、期限: 2025-11-18）。 citeturn0view0
+- **新サービス設計ドキュメント**: Performance Review、Culture Matching、Learning Path、Interviewer Trainingサービスの詳細設計を`docs/14_detailed_design.md`に追加（担当: BE Lead、期限: 2025-11-25）。
 - **テスト計画リンク**: QAが`docs/05_operational_plan.md` セクション2.2に詳細テストケースを追加。
 
 > 本書の疑問点・変更提案はGitHub Issuesで `Design` ラベルを付与し、週次アーキレビュー（火曜15:00 JST）で承認を得ること。
