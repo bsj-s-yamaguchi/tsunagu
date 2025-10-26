@@ -254,3 +254,279 @@ CREATE INDEX communication_message_channel_status_idx ON communication_message(c
 - [ ] GDPR向け Data Processing Agreement に伴うRetention設定のレビュー。
 - [ ] Data Catalog（Collibra等）導入検討。MVPではConfluence＋本書で代替。
 - [ ] `communication_message` テンプレートの多言語対応とLINE/Twilio審査用ログエクスポートの自動化を設計（担当: CX/BE、due 2025-11-12）。 citeturn0open0
+
+## 3. サービス基盤テーブル
+
+### 3.1 ユーザー・認証関連テーブル
+```sql
+-- ユーザーテーブル
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(255),
+  first_name VARCHAR(100),
+  last_name VARCHAR(100),
+  is_email_verified BOOLEAN DEFAULT false,
+  is_2fa_enabled BOOLEAN DEFAULT false,
+  totp_secret VARCHAR(255),
+  failed_login_attempts INTEGER DEFAULT 0,
+  locked_until TIMESTAMP,
+  last_login_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ロールテーブル
+CREATE TABLE roles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(50) UNIQUE NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 権限テーブル
+CREATE TABLE permissions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(100) UNIQUE NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ロール権限関連テーブル
+CREATE TABLE role_permissions (
+  role_id UUID REFERENCES roles(id),
+  permission_id UUID REFERENCES permissions(id),
+  PRIMARY KEY (role_id, permission_id)
+);
+
+-- ユーザーロール関連テーブル
+CREATE TABLE user_roles (
+  user_id UUID REFERENCES users(id),
+  role_id UUID REFERENCES roles(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  PRIMARY KEY (user_id, role_id)
+);
+
+-- セッションテーブル
+CREATE TABLE sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id),
+  token_hash VARCHAR(255) NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  ip_address INET,
+  user_agent TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- SSOプロバイダーテーブル
+CREATE TABLE sso_providers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(50) NOT NULL,
+  client_id VARCHAR(255),
+  client_secret VARCHAR(255),
+  redirect_uri VARCHAR(255),
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ユーザーSSO関連テーブル
+CREATE TABLE user_sso_accounts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id),
+  provider_id UUID REFERENCES sso_providers(id),
+  provider_user_id VARCHAR(255),
+  access_token VARCHAR(500),
+  refresh_token VARCHAR(500),
+  expires_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(provider_id, provider_user_id)
+);
+```
+
+### 3.2 サブスクリプション・請求関連テーブル
+```sql
+-- プランテーブル
+CREATE TABLE plans (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(100) NOT NULL,
+  description TEXT,
+  price_cents INTEGER NOT NULL,
+  billing_interval VARCHAR(20) NOT NULL, -- 'month', 'year'
+  max_jobs INTEGER, -- NULL = 無制限
+  max_candidates INTEGER, -- NULL = 無制限
+  max_ai_inference INTEGER, -- NULL = 無制限
+  features JSONB, -- 有効な機能リスト
+  is_active BOOLEAN DEFAULT true,
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- サブスクリプションテーブル
+CREATE TABLE subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID REFERENCES companies(id),
+  plan_id UUID REFERENCES plans(id),
+  status VARCHAR(20) NOT NULL, -- 'active', 'cancelled', 'paused'
+  current_period_start TIMESTAMP NOT NULL,
+  current_period_end TIMESTAMP NOT NULL,
+  trial_ends_at TIMESTAMP,
+  cancel_at_period_end BOOLEAN DEFAULT false,
+  canceled_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 支払方法テーブル
+CREATE TABLE payment_methods (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID REFERENCES companies(id),
+  stripe_payment_method_id VARCHAR(255),
+  type VARCHAR(20) NOT NULL, -- 'card', 'bank_account'
+  card_brand VARCHAR(20), -- 'visa', 'mastercard' etc.
+  card_last4 VARCHAR(4),
+  card_exp_month INTEGER,
+  card_exp_year INTEGER,
+  is_default BOOLEAN DEFAULT false,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 請求テーブル
+CREATE TABLE invoices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID REFERENCES companies(id),
+  subscription_id UUID REFERENCES subscriptions(id),
+  stripe_invoice_id VARCHAR(255),
+  amount_cents INTEGER NOT NULL,
+  currency VARCHAR(3) DEFAULT 'jpy',
+  status VARCHAR(20) NOT NULL, -- 'draft', 'open', 'paid', 'void', 'uncollectible'
+  issued_at TIMESTAMP NOT NULL,
+  due_at TIMESTAMP NOT NULL,
+  paid_at TIMESTAMP,
+  pdf_url VARCHAR(500),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 利用状況テーブル
+CREATE TABLE usage_records (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID REFERENCES companies(id),
+  subscription_id UUID REFERENCES subscriptions(id),
+  metric_name VARCHAR(100) NOT NULL, -- 'jobs_posted', 'candidates_processed', 'ai_inference'
+  quantity INTEGER NOT NULL,
+  recorded_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### 3.3 サポート・ヘルプ関連テーブル
+```sql
+-- サポートチケットテーブル
+CREATE TABLE support_tickets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID REFERENCES companies(id),
+  user_id UUID REFERENCES users(id),
+  subject VARCHAR(255) NOT NULL,
+  description TEXT NOT NULL,
+  status VARCHAR(20) NOT NULL, -- 'open', 'in_progress', 'resolved', 'closed'
+  priority VARCHAR(20) NOT NULL, -- 'low', 'medium', 'high', 'urgent'
+  category VARCHAR(50), -- 'billing', 'technical', 'feature_request'
+  assigned_to UUID REFERENCES users(id), -- サポート担当者
+  resolved_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- チケットコメントテーブル
+CREATE TABLE ticket_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticket_id UUID REFERENCES support_tickets(id),
+  user_id UUID REFERENCES users(id),
+  content TEXT NOT NULL,
+  is_internal BOOLEAN DEFAULT false, -- 内部コメントかどうか
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ナレッジベース記事テーブル
+CREATE TABLE knowledge_articles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title VARCHAR(255) NOT NULL,
+  content TEXT NOT NULL,
+  category VARCHAR(100),
+  tags VARCHAR(255)[], -- 配列形式のタグ
+  is_published BOOLEAN DEFAULT false,
+  view_count INTEGER DEFAULT 0,
+  helpful_votes INTEGER DEFAULT 0,
+  not_helpful_votes INTEGER DEFAULT 0,
+  created_by UUID REFERENCES users(id),
+  updated_by UUID REFERENCES users(id),
+  published_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- リリースノートテーブル
+CREATE TABLE release_notes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  version VARCHAR(20) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  content TEXT NOT NULL,
+  release_date TIMESTAMP NOT NULL,
+  is_published BOOLEAN DEFAULT false,
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ユーザーリリースノート閲覧テーブル
+CREATE TABLE user_release_note_views (
+  user_id UUID REFERENCES users(id),
+  release_note_id UUID REFERENCES release_notes(id),
+  viewed_at TIMESTAMP DEFAULT NOW(),
+  PRIMARY KEY (user_id, release_note_id)
+);
+```
+
+### 3.4 セキュリティ・コンプライアンス関連テーブル
+```sql
+-- 監査ログテーブル
+CREATE TABLE audit_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id),
+  company_id UUID REFERENCES companies(id),
+  action VARCHAR(100) NOT NULL,
+  resource_type VARCHAR(50),
+  resource_id UUID,
+  metadata JSONB,
+  ip_address INET,
+  user_agent TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- コンプライアンスリクエストテーブル
+CREATE TABLE compliance_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID REFERENCES companies(id),
+  user_id UUID REFERENCES users(id),
+  request_type VARCHAR(50) NOT NULL, -- 'data_access', 'data_portability', 'data_deletion'
+  status VARCHAR(20) NOT NULL, -- 'pending', 'processing', 'completed', 'rejected'
+  details JSONB, -- リクエスト詳細
+  requested_at TIMESTAMP DEFAULT NOW(),
+  processed_at TIMESTAMP,
+  processed_by UUID REFERENCES users(id)
+);
+
+-- データ保持ポリシーテーブル
+CREATE TABLE data_retention_policies (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID REFERENCES companies(id),
+  resource_type VARCHAR(50) NOT NULL, -- 'candidates', 'jobs', 'applications'
+  retention_period_days INTEGER NOT NULL,
+  auto_archive BOOLEAN DEFAULT false,
+  auto_delete BOOLEAN DEFAULT false,
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+

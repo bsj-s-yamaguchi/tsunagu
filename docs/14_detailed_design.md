@@ -109,6 +109,197 @@ graph TD
   - **Learning Path Model**: 候補者のスキルギャップを特定し、カスタマイズされた学習プランを自動生成。
   - **Interviewer Training Model**: 面接官の評価傾向とバイアスを分析し、個別に最適化されたトレーニングプログラムを提供。
 
+## 3. 新AIサービス詳細設計（追加）
+
+### 3.1 AIパフォーマンスレビューサービス
+- **サービス名**: PerformanceReviewService
+- **責任範囲**: 入社後実績と採用時AIスコアの照合、AIモデル精度検証
+
+**主要機能**:
+- 入社後実績の収集と管理
+- 採用時AIスコアとの照合
+- モデル精度の計算とレポート生成
+- モデルの再学習と更新
+
+**APIエンドポイント**:
+```
+type Query {
+  performanceReview(id: ID!): PerformanceReview!
+  modelAccuracy: ModelAccuracy!
+}
+
+type Mutation {
+  generatePerformanceReview(applicationId: ID!): PerformanceReview!
+}
+
+```
+
+**データスキーマ**:
+```
+-- パフォーマンスレビュー結果テーブル
+CREATE TABLE performance_reviews (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id UUID REFERENCES applications(id),
+  candidate_id UUID REFERENCES candidates(id),
+  ai_scores_at_hire JSONB,
+  actual_performance JSONB,
+  accuracy_delta JSONB,
+  review_period INTERVAL,
+  reviewed_at TIMESTAMP DEFAULT NOW()
+);
+
+-- モデル精度テーブル
+CREATE TABLE model_metrics (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  model_version TEXT NOT NULL,
+  accuracy_score NUMERIC(5,4),
+  bias_indicators JSONB,
+  last_reviewed_at TIMESTAMP DEFAULT NOW(),
+  next_review_due_at TIMESTAMP
+);
+
+```
+
+
+## 4. サービス基盤アーキテクチャ
+
+### 4.1 認証・認可サービス
+**サービス名**: AuthService
+**責任範囲**: ユーザー認証、セッション管理、RBAC、SSO統合
+
+**主要機能**:
+- ユーザー登録・ログイン・ログアウト
+- パスワードリセットとメール検証
+- TOTPベースの二要素認証（2FA）
+- FIDO2/WebAuthnパスキー認証
+- SAML 2.0およびOIDCエンタープライズSSO
+- ロールベースアクセス制御（RBAC）
+- IP制限と条件付きアクセス制御
+
+**APIエンドポイント**:
+```
+type Mutation {
+  register(input: RegisterInput!): AuthResult!
+  login(input: LoginInput!): AuthResult!
+  logout: Boolean!
+  refreshToken: AuthResult!
+  enable2FA: Enable2FAResult!
+  verify2FA(token: String!): Boolean!
+  registerPasskey: PasskeyRegistrationResult!
+  verifyPasskey(assertion: String!): AuthResult!
+  initiateSSO(provider: SSOProvider!): SSORedirect!
+}
+
+type Query {
+  me: User!
+  sessions: [Session!]!
+  permissions(resource: String!): [Permission!]!
+}
+```
+
+**データスキーマ**:
+```
+-- ユーザーテーブル
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(255),
+  first_name VARCHAR(100),
+  last_name VARCHAR(100),
+  is_email_verified BOOLEAN DEFAULT false,
+  is_2fa_enabled BOOLEAN DEFAULT false,
+  totp_secret VARCHAR(255),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ロールテーブル
+CREATE TABLE roles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(50) UNIQUE NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ユーザーロール関連テーブル
+CREATE TABLE user_roles (
+  user_id UUID REFERENCES users(id),
+  role_id UUID REFERENCES roles(id),
+  PRIMARY KEY (user_id, role_id)
+);
+
+-- セッションテーブル
+CREATE TABLE sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id),
+  token_hash VARCHAR(255) NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  ip_address INET,
+  user_agent TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### 4.2 サブスクリプション・請求サービス
+**サービス名**: BillingService
+**責任範囲**: プラン管理、サブスクリプション、請求、支払
+
+**主要機能**:
+- プラン定義と価格設定
+- サブスクリプション作成・変更・キャンセル
+- 請求明細生成と送付
+- 支払方法管理
+- 利用状況追跡と制限
+
+**APIエンドポイント**:
+```
+type Mutation {
+  subscribeToPlan(planId: ID!, paymentMethodId: ID): SubscriptionResult!
+  changePlan(newPlanId: ID!): SubscriptionResult!
+  cancelSubscription: Boolean!
+  addPaymentMethod(input: PaymentMethodInput!): PaymentMethod!
+  removePaymentMethod(id: ID!): Boolean!
+  setDefaultPaymentMethod(id: ID!): Boolean!
+}
+
+type Query {
+  plans: [Plan!]!
+  currentSubscription: Subscription
+  invoices(limit: Int = 10): [Invoice!]!
+  paymentMethods: [PaymentMethod!]!
+  usageMetrics: UsageMetrics!
+}
+```
+
+### 4.3 サポート・ヘルプサービス
+**サービス名**: SupportService
+**責任範囲**: チケット管理、ナレッジベース、コミュニティ
+
+**主要機能**:
+- サポートチケット作成・追跡
+- ナレッジベース記事管理
+- コミュニティフォーラム
+- リリースノート管理
+
+**APIエンドポイント**:
+```
+type Mutation {
+  createTicket(input: CreateTicketInput!): Ticket!
+  addTicketComment(ticketId: ID!, content: String!): TicketComment!
+  voteOnArticle(articleId: ID!, vote: VoteType!): ArticleVote!
+  createForumPost(input: CreateForumPostInput!): ForumPost!
+  markReleaseNoteAsRead(id: ID!): Boolean!
+}
+
+type Query {
+  tickets(status: TicketStatus): [Ticket!]!
+  knowledgeBaseArticles(category: String): [Article!]!
+  forumPosts(limit: Int = 20): [ForumPost!]!
+  unreadReleaseNotes: [ReleaseNote!]!
+}
+```
+
 ## 3. データ設計
 ### 3.1 エンティティと関係
 | エンティティ | 主キー | 主なリレーション | 区分 | 保管先 |
@@ -148,7 +339,7 @@ graph TD
 | training_programs | program_id | interviewer_metrics | 機密 | PostgreSQL |
 
 ### 3.2 テーブル定義（抜粋）
-```sql
+```
 CREATE TABLE job_postings (
   job_id UUID PRIMARY KEY,
   org_id UUID NOT NULL REFERENCES organizations(org_id),
@@ -209,7 +400,7 @@ CREATE TABLE payment_orders (
 );
 ```
 
-```sql
+```
 CREATE TABLE communication_threads (
   thread_id UUID PRIMARY KEY,
   org_id UUID NOT NULL REFERENCES organizations(org_id),
@@ -397,7 +588,7 @@ CREATE TABLE training_programs (
 
 ## 4. API設計
 ### 4.1 GraphQLスキーマ（主要抜粋）
-```graphql
+```
 type Query {
   me: Viewer!
   job(id: ID!): Job!
