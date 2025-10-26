@@ -7,10 +7,10 @@
 
 **準備者**: プロダクト戦略チーム
 
-**バージョン**: 0.4 (ワーキングドラフト)
+**バージョン**: 0.5 (ワーキングドラフト)
 
-**日付**: 2025-10-21  
-**最終更新**: 2025-10-21 (サービス基盤機能追加)
+**日付**: 2025-10-26
+**最終更新**: 2025-10-26 (全体ドキュメント整合性修正)
 
 ---
 
@@ -56,16 +56,25 @@
 
 ---
 
-## 未解決アクション（抜粋）
-| 期限 | 担当者 | タスク | 参照 |
+## 未解決アクション（完了済み更新）
+
+### ✅完了済みアクション（2025-10-27更新）
+| 完了日 | 担当者 | タスク | 参照 |
 | --- | --- | --- | --- |
-| 2025-11-05 | BEリード | サービス基盤API（認証・請求・サポート）の初期実装とER図作成 | `docs/14_detailed_design.md §4`, `docs/15_db_design.md §11` |
-| 2025-11-10 | EM | マルチチャネル・選考フローとサービス基盤のシーケンス図を追加 | `docs/14_detailed_design.md §10` |
-| 2025-11-12 | Ops | Slack/LINE/SMS通知テンプレ＋KYCチェックリスト整備 | `docs/14_detailed_design.md §10` |
-| 2025-11-15 | CXリード | LINE/Twilio/Chatwork Runbook・禁止語リストとサポートナレッジ作成 | `docs/14_detailed_design.md §10` |
-| 2025-11-18 | データリード | 候補者重複検知・タグ規約ガイドとコンプライアンス監査ログ設計 | `docs/14_detailed_design.md §10` |
-| 2025-11-20 | データリード | AIパフォーマンスレビュー/カルチャーマッチングモデル要件定義書作成 | `docs/14_detailed_design.md §3` |
-| 2025-11-25 | EM | モバイルPWA初期実装とオフライン機能検証 | `docs/14_detailed_design.md §6` |
+| 2025-10-27 | Founder | サービス基盤機能（認証・請求・サポート・セキュリティ）の詳細設計統一 | `docs/14_detailed_design.md §4.1-4.6`, `docs/08_requirements.md §2.12` |
+| 2025-10-27 | Founder | AIサービス群（Performance Review, Culture Matching, Learning Path, Interviewer Training）の要件定義統一 | `docs/14_detailed_design.md §3`, `docs/08_requirements.md §2.4` |
+| 2025-10-27 | Founder | サービス基盤テーブルのDB設計統一 | `docs/15_db_design.md §3` |
+
+### 🟡進行中アクション（残課題）
+| 期限 | 担当者 | タスク | 参照 | 進捗 |
+| --- | --- | --- | --- | --- |
+| 2025-11-05 | Founder | サービス基盤API（認証・請求・サポート）の初期実装 | `docs/14_detailed_design.md §4`, `docs/15_db_design.md §11` | 設計完了、ER図作成中 |
+| 2025-11-10 | Founder | マルチチャネル・選考フローとサービス基盤のシーケンス図作成 | `docs/14_detailed_design.md §10` | 要件整理完了、図面作成中 |
+| 2025-11-12 | Founder | Slack/LINE/SMS通知テンプレ＋KYCチェックリスト整備 | `docs/14_detailed_design.md §10` | LINE審査状況確認中 |
+| 2025-11-15 | Founder | LINE/Twilio/Chatwork Runbook・禁止語リスト作成 | `docs/14_detailed_design.md §10` | Twilio審査進捗確認中 |
+| 2025-11-18 | Founder | 候補者重複検知・タグ規約ガイドと監査ログ設計 | `docs/14_detailed_design.md §10` | DB設計ベースで整理中 |
+| 2025-11-20 | Founder | AIパフォーマンスレビュー/カルチャーマッチングモデル要件詳細化 | `docs/14_detailed_design.md §3` | MVPスコープ確定中 |
+| 2025-11-25 | Founder | モバイルPWA初期実装とオフライン機能検証 | `docs/14_detailed_design.md §6` | 技術検証開始 |
 
 ---
 

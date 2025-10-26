@@ -1,5 +1,10 @@
 # Tsunagu 機能一覧（競合比較ベース）
 
+**バージョン**: 0.5
+
+**日付**: 2025-10-26
+**最終更新**: 2025-10-26 (AIサービス群機能詳細追加・全体整合性修正)
+
 ## 1. サマリー
 - 競合（Ashby、SmartRecruiters、Greenhouse、Workable、Rippling、Deel、HRMOS、HERP Hire、sonar ATS、Talentio、ジョブカン）の機能を分析し、Tsunaguが提供すべき機能をモジュール単位で整理。
 - 各機能は「必須（P0）」「重要（P1）」「将来拡張（P2）」の優先度を設定し、リリースフェーズ（MVP / Growth / Network）を紐付け。
